@@ -9,6 +9,29 @@ kernel void avg_filter(global const int* A, global int* B) {
 	int id = get_global_id(0);
 	B[id] = (A[id - 1] + A[id] + A[id + 1])/3;
 }
+kernel void scan_bl(global int* A, global int* C) {
+	int id = get_global_id(0);
+	int N = get_global_size(0); int t;
+	// Up-sweep
+	for (int stride = 1; stride < N; stride *= 2) {
+		if (((id + 1) % (stride * 2)) == 0)
+			A[id] += A[id - stride];
+		barrier(CLK_GLOBAL_MEM_FENCE); // Sync the step
+	}
+	// Down-sweep
+	if (id == 0) A[N - 1] = 0; // Exclusive scan
+	barrier(CLK_GLOBAL_MEM_FENCE); // Sync the step
+	for (int stride = N / 2; stride > 0; stride /= 2) {
+		if (((id + 1) % (stride * 2)) == 0) {
+			t = A[id];
+			A[id] += A[id - stride]; // Reduce
+			A[id - stride] = t; // Move
+		}
+		barrier(CLK_GLOBAL_MEM_FENCE); // Sync the step
+	}
+	C[id] = A[id];
+}
+
 
 //a simple 2D kernel
 kernel void add2D(global const int* A, global const int* B, global int* C) {

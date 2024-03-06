@@ -1,8 +1,46 @@
+#include <CL/cl_ext.h>
 //a simple OpenCL kernel which copies all pixels from A to B
 kernel void identity(global const uchar* A, global uchar* B) {
 	int id = get_global_id(0);
 	B[id] = A[id];
 }
+
+kernel void intensity_histogram(global const uchar* input_image, global uchar* histogram, const int num_bins) {
+	// Get the global ID
+	int id = get_global_id(0);
+
+	// Get the intensity value of the current pixel
+	uchar intensity = input_image[id];
+
+	// Increment the corresponding bin in the histogram
+	atomic_inc(&histogram[intensity * num_bins / 256]);
+}
+
+
+kernel void scan_bl(global const uchar* A, global uchar* B) {
+	int id = get_global_id(0);
+	int N = get_global_size(0);
+	int t;
+	// Up-sweep
+	for (int stride = 1; stride < N; stride *= 2) {
+		if (((id + 1) % (stride * 2)) == 0)
+			B[id] += B[id - stride];
+		barrier(CLK_GLOBAL_MEM_FENCE); // Sync the step
+	}
+	// Down-sweep
+	if (id == 0) B[N - 1] = 0; // Exclusive scan
+	barrier(CLK_GLOBAL_MEM_FENCE); // Sync the step
+	for (int stride = N / 2; stride > 0; stride /= 2) {
+		if (((id + 1) % (stride * 2)) == 0) {
+			t = B[id];
+			B[id] += B[id - stride]; // Reduce
+			B[id - stride] = t; // Move
+		}
+		barrier(CLK_GLOBAL_MEM_FENCE); // Sync the step
+	}
+}
+
+
 
 kernel void filter_r(global const uchar* A, global uchar* B) {
 	int id = get_global_id(0);
