@@ -1,20 +1,30 @@
-#include <CL/cl_ext.h>
+
 //a simple OpenCL kernel which copies all pixels from A to B
 kernel void identity(global const uchar* A, global uchar* B) {
 	int id = get_global_id(0);
 	B[id] = A[id];
 }
 
-kernel void intensity_histogram(global const uchar* input_image, global uchar* histogram, const int num_bins) {
-	// Get the global ID
+kernel void calculate_histogram(global const uchar* A, global uint* histogram) {
+	// Initialize histogram bins to zero
+	local uint local_histogram[256];
+	for (int i = 0; i < 256; ++i) {
+		local_histogram[i] = 0;
+	}
+
+	// Calculate histogram in local memory
 	int id = get_global_id(0);
+	uchar intensity = A[id];
+	atomic_inc(&local_histogram[intensity]);
 
-	// Get the intensity value of the current pixel
-	uchar intensity = input_image[id];
-
-	// Increment the corresponding bin in the histogram
-	atomic_inc(&histogram[intensity * num_bins / 256]);
+	// Accumulate local histograms into global histogram
+	if (get_local_id(0) == 0) {
+		for (int i = 0; i < 256; ++i) {
+			atomic_add(&histogram[i], local_histogram[i]);
+		}
+	}
 }
+
 
 
 kernel void scan_bl(global const uchar* A, global uchar* B) {

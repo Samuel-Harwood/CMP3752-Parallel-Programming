@@ -78,17 +78,45 @@ int main(int argc, char** argv) {
 		//cl::Buffer dev_convolution_mask(context, CL_MEM_READ_ONLY, convolution_mask.size()*sizeof(float));
 
 		//4.1 Copy images to device memory
-		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
+		//queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
 		//		queue.enqueueWriteBuffer(dev_convolution_mask, CL_TRUE, 0, convolution_mask.size()*sizeof(float), &convolution_mask[0]);
 
 		//4.2 Setup and execute the kernel (i.e. device code)
-		cl::Kernel kernel = cl::Kernel(program, "intensity_histogram");
-		kernel.setArg(0, dev_image_input);
-		kernel.setArg(1, dev_image_output);
-		kernel.setArg(2, 255);
-		//		kernel.setArg(2, dev_convolution_mask);
+		//cl::Kernel kernel = cl::Kernel(program, "identity");
+		//kernel.setArg(0, dev_image_input);
+		//kernel.setArg(1, dev_image_output);
+	//		kernel.setArg(2, dev_convolution_mask);
 
+
+
+
+		cl::Buffer dev_histogram(context, CL_MEM_READ_WRITE, 256 * sizeof(unsigned int));
+
+		// Initialize histogram buffer to zero
+		std::vector<unsigned int> initial_histogram(256, 0);
+		queue.enqueueWriteBuffer(dev_histogram, CL_TRUE, 0, initial_histogram.size() * sizeof(unsigned int), initial_histogram.data());
+
+		// Set kernel arguments
+		cl::Kernel kernel = cl::Kernel(program, "calculate_histogram");
+		kernel.setArg(0, dev_image_input);
+		kernel.setArg(1, dev_histogram);
+
+		// Enqueue NDRange kernel
 		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
+
+		// Read histogram from device to host
+		std::vector<unsigned int> histogram(256);
+		queue.enqueueReadBuffer(dev_histogram, CL_TRUE, 0, histogram.size() * sizeof(unsigned int), histogram.data());
+		// Print histogram values
+		std::cout << "Histogram values:" << std::endl;
+		for (int i = 0; i < histogram.size(); ++i) {
+			std::cout << "Bin " << i << ": " << histogram[i] << std::endl;
+		}
+
+
+
+
+		//queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
 
 		vector<unsigned char> output_buffer(image_input.size());
 		//4.3 Copy the result from device to host
