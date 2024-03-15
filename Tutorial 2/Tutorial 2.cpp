@@ -93,11 +93,11 @@ int main(int argc, char** argv) {
 		cl::Buffer dev_histogram(context, CL_MEM_READ_WRITE, 256 * sizeof(unsigned int));
 
 		// Initialize histogram buffer to zero
-		std::vector<unsigned int> initial_histogram(256, 0);
+		std::vector<unsigned int> initial_histogram(256, 1);
 		queue.enqueueWriteBuffer(dev_histogram, CL_TRUE, 0, initial_histogram.size() * sizeof(unsigned int), initial_histogram.data());
 
 		// Set kernel arguments
-		cl::Kernel kernel = cl::Kernel(program, "calculate_histogram");
+		cl::Kernel kernel = cl::Kernel(program, "hist_simple");
 		kernel.setArg(0, dev_image_input);
 		kernel.setArg(1, dev_histogram);
 

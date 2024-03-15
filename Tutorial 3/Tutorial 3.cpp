@@ -57,12 +57,18 @@ int main(int argc, char** argv) {
 
 		//Part 3 - memory allocation
 		//host - input
-		std::vector<mytype> A(10000, 1);//allocate 10 elements with an initial value 1 - their sum is 10 so it should be easy to check the results!
+		//std::vector<mytype> A(10,1);//allocate 10 elements with an initial value 1 - their sum is 10 so it should be easy to check the results!
+
+		std::vector<mytype>A(11);
+		for (int i = 0; i < A.size(); ++i) {
+			A[i] = i;
+		}
+
 
 		//the following part adjusts the length of the input vector so it can be run for a specific workgroup size
 		//if the total input length is divisible by the workgroup size
 		//this makes the code more efficient
-		size_t local_size = 10;
+		size_t local_size = 11;
 
 		size_t padding_size = A.size() % local_size;
 
@@ -80,7 +86,7 @@ int main(int argc, char** argv) {
 		size_t nr_groups = input_elements / local_size;
 
 		//host - output
-		std::vector<mytype> B(1); //Was input_elements
+		std::vector<mytype> B(10); //Can be 1, input_elements
 		size_t output_size = B.size() * sizeof(mytype);//size in bytes
 
 		//device - buffers
@@ -96,18 +102,18 @@ int main(int argc, char** argv) {
 		queue.enqueueFillBuffer(buffer_B, 0, 0, output_size);//zero B buffer on device memory
 
 		//4.2 Setup and execute all kernels (i.e. device code)
-		cl::Kernel kernel_1 = cl::Kernel(program, "reduce_add_part_1");
+		cl::Kernel kernel_1 = cl::Kernel(program, "hist_simple");
 
 		kernel_1.setArg(0, buffer_A);
 		kernel_1.setArg(1, buffer_B);
-		kernel_1.setArg(2, cl::Local(local_size * sizeof(mytype))); //local memory size
+		//kernel_1.setArg(2, cl::Local(local_size * sizeof(mytype))); //local memory size
 
 		//call all kernels in a sequence
 		cl::Event prof_event; //To Measure Time!
 		queue.enqueueNDRangeKernel(kernel_1, cl::NullRange, cl::NDRange(input_elements), cl::NDRange(local_size), NULL, &prof_event);
 		//4.3 Copy the result from device to host
 		queue.enqueueReadBuffer(buffer_B, CL_TRUE, 0, output_size, &B[0]);
-
+			
 
 		cl::Device device = context.getInfo<CL_CONTEXT_DEVICES>()[0]; // get device
 		size_t recommended_local_size_multiple = kernel_1.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device); // get info
@@ -116,12 +122,14 @@ int main(int argc, char** argv) {
 		std::cout << "number of elements: " << input_elements << std::endl;
 
 		//std::cout << "\nA = " << A << std::endl;
+		std::cout << "A = " << A << std::endl;
+
 		std::cout << "B = " << B << std::endl;
 
 		std::cout << "Kernel execution time [ns]: " << prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>()
 			- prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 
-
+		std::cout << "Kernel Preferred Work Group Size: " << recommended_local_size << std::endl;
 	}
 	catch (cl::Error err) {
 		std::cerr << "ERROR: " << err.what() << ", " << getErrorString(err.err()) << std::endl;

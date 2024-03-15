@@ -95,18 +95,6 @@ kernel void reduce_add_4(global const int* A, global int* B, local int* scratch)
 	}
 }
 
-kernel void reduce_add_part_1(global const int* A, global int* B, local int* scratch) {
-	int id = get_global_id(0);
-	if ((id % 2) == 0):
-		A[id] += A[id + 1];
-}
-
-kernel void reduce_add_part_2(global const int* A, global int* B, local int* scratch) {
-	int id = get_global_id(0);
-	if ((id % 4) == 0):
-		A[id] += A[id + 2];
-}
-
 //a very simple histogram implementation
 kernel void hist_simple(global const int* A, global int* H) { 
 	int id = get_global_id(0);
