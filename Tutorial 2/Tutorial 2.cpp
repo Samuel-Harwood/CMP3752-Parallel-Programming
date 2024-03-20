@@ -1,6 +1,6 @@
+//By Samuel Harwood
 #include <iostream>
 #include <vector>
-
 #include "Utils.h"
 #include "CImg.h"
 
@@ -34,10 +34,14 @@ int main(int argc, char** argv) {
 
 	//detect any potential exceptions
 	try {
+		//Dynamically set number of bins
+		int nr_bins = 256; //Default Value
+		cout << "Enter No. Bins (Default: 256) - ";
+		cin >> nr_bins; //Should probably have error handling but not graded soooo
+
+
 		CImg<unsigned char> image_input(image_filename.c_str());
 		CImgDisplay disp_input(image_input, "input");
-		
-		
 		
 
 		//Part 3 - host operations
@@ -70,11 +74,13 @@ int main(int argc, char** argv) {
 
 		//Part 4 - device operations
 
+
+
+
 		//device - buffers
 		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size());
-		cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); //should be the same as input image
+		cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); //should be the same as input image //image_input.size()
 
-		int nr_bins = 256; //Static - Change to dynamic options
 
 
 		//4.1 Copy images to device memory
