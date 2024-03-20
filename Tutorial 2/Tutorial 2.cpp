@@ -74,21 +74,17 @@ int main(int argc, char** argv) {
 		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size());
 		cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); //should be the same as input image
 
-	//4.1 Copy images to device memory
+		int nr_bins = 256; //Static - Change to dynamic options
+
+
+		//4.1 Copy images to device memory
 		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
 
 		//4.2 Setup and execute the kernel (i.e. device code)
-		/*cl::Kernel kernel = cl::Kernel(program, "hist_simple");
-		kernel.setArg(0, dev_image_input);
-		kernel.setArg(1, dev_image_output);
-
-		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);*/
-		int nr_bins = 200;
 		cl::Kernel kernel = cl::Kernel(program, "hist_with_print");
 		kernel.setArg(0, dev_image_input);
 		kernel.setArg(1, dev_image_output);
-		kernel.setArg(2, static_cast<int>(image_input.size())); // Pass image size as argument
-		kernel.setArg(3, static_cast<int>(nr_bins)); // Pass number of bins as argument
+		kernel.setArg(2, static_cast<int>(nr_bins)); // Pass number of bins as argument
 
 		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
 
@@ -96,11 +92,13 @@ int main(int argc, char** argv) {
 		vector<unsigned char> output_buffer(image_input.size());
 
 		//4.3 Copy the result from device to host
+		cl::Event kernel_event;
 		queue.enqueueReadBuffer(dev_image_output, CL_TRUE, 0, output_buffer.size(), &output_buffer.data()[0]);
 
 		CImg<unsigned char> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
 		CImgDisplay disp_output(output_image, "output");
-
+		// Print histogram
+	
 		while (!disp_input.is_closed() && !disp_output.is_closed()
 			&& !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
 			disp_input.wait(1);

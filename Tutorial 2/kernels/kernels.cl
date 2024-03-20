@@ -33,14 +33,12 @@ kernel void hist_simple(global const int* A, global int* H, private int nr_bins)
 	if (bin_index >= nr_bins) {
 		bin_index = nr_bins - 1; // Put numbers greater than or equal to nr_bins in the last bin
 	}
-
-
 	atomic_inc(&H[bin_index]);//serial operation, not very efficient!
 }
 
-kernel void hist_with_print(global const unsigned char* image, global int* histogram, const int image_size, const int nr_bins) {
+kernel void hist_with_print(global const unsigned char* image, global int* histogram, const int nr_bins) {
 	int id = get_global_id(0);
-
+	const int image_size = get_global_size(0); // Get total number of pixels in the image
 	// Calculate histogram
 	if (id < image_size) {
 		int bin_index = image[id]; // Assuming image contains intensity values
@@ -52,14 +50,15 @@ kernel void hist_with_print(global const unsigned char* image, global int* histo
 
 	// Barrier to ensure all threads finish histogram calculation before printing
 	barrier(CLK_GLOBAL_MEM_FENCE);
-
-	// Print histogram
 	if (id == 0) {
 		for (int i = 0; i < nr_bins; ++i) {
 			printf("Bin %d: %d\n", i, histogram[i]);
 		}
 	}
 }
+
+
+
 
 
 kernel void scan_bl(global const uchar* A, global uchar* B) {
