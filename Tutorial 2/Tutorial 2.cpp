@@ -1,6 +1,6 @@
 #include <iostream>
 #include <vector>
-#include <algorithm>
+
 #include "Utils.h"
 #include "CImg.h"
 
@@ -36,11 +36,9 @@ int main(int argc, char** argv) {
 	try {
 		CImg<unsigned char> image_input(image_filename.c_str());
 		CImgDisplay disp_input(image_input, "input");
-
-		//a 3x3 convolution mask implementing an averaging filter
-		std::vector<float> convolution_mask = { 1.f / 9, 1.f / 9, 1.f / 9,
-												1.f / 9, 1.f / 9, 1.f / 9,
-												1.f / 9, 1.f / 9, 1.f / 9 };
+		
+		
+		
 
 		//Part 3 - host operations
 		//3.1 Select computing devices
@@ -75,50 +73,28 @@ int main(int argc, char** argv) {
 		//device - buffers
 		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size());
 		cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); //should be the same as input image
-		//cl::Buffer dev_convolution_mask(context, CL_MEM_READ_ONLY, convolution_mask.size()*sizeof(float));
 
-		//4.1 Copy images to device memory
-		//queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
-		//		queue.enqueueWriteBuffer(dev_convolution_mask, CL_TRUE, 0, convolution_mask.size()*sizeof(float), &convolution_mask[0]);
+	//4.1 Copy images to device memory
+		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
 
 		//4.2 Setup and execute the kernel (i.e. device code)
-		//cl::Kernel kernel = cl::Kernel(program, "identity");
-		//kernel.setArg(0, dev_image_input);
-		//kernel.setArg(1, dev_image_output);
-	//		kernel.setArg(2, dev_convolution_mask);
-
-
-
-
-		cl::Buffer dev_histogram(context, CL_MEM_READ_WRITE, 256 * sizeof(unsigned int));
-
-		// Initialize histogram buffer to zero
-		std::vector<unsigned int> initial_histogram(256, 1);
-		queue.enqueueWriteBuffer(dev_histogram, CL_TRUE, 0, initial_histogram.size() * sizeof(unsigned int), initial_histogram.data());
-
-		// Set kernel arguments
-		cl::Kernel kernel = cl::Kernel(program, "hist_simple");
+		/*cl::Kernel kernel = cl::Kernel(program, "hist_simple");
 		kernel.setArg(0, dev_image_input);
-		kernel.setArg(1, dev_histogram);
+		kernel.setArg(1, dev_image_output);
 
-		// Enqueue NDRange kernel
+		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);*/
+		int nr_bins = 200;
+		cl::Kernel kernel = cl::Kernel(program, "hist_with_print");
+		kernel.setArg(0, dev_image_input);
+		kernel.setArg(1, dev_image_output);
+		kernel.setArg(2, static_cast<int>(image_input.size())); // Pass image size as argument
+		kernel.setArg(3, static_cast<int>(nr_bins)); // Pass number of bins as argument
+
 		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
 
-		// Read histogram from device to host
-		std::vector<unsigned int> histogram(256);
-		queue.enqueueReadBuffer(dev_histogram, CL_TRUE, 0, histogram.size() * sizeof(unsigned int), histogram.data());
-		// Print histogram values
-		std::cout << "Histogram values:" << std::endl;
-		for (int i = 0; i < histogram.size(); ++i) {
-			std::cout << "Bin " << i << ": " << histogram[i] << std::endl;
-		}
-
-
-
-
-		//queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
 
 		vector<unsigned char> output_buffer(image_input.size());
+
 		//4.3 Copy the result from device to host
 		queue.enqueueReadBuffer(dev_image_output, CL_TRUE, 0, output_buffer.size(), &output_buffer.data()[0]);
 
