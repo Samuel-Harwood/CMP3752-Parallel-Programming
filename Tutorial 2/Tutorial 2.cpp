@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
 		std::cout << "Running on " << GetPlatformName(platform_id) << ", " << GetDeviceName(platform_id, device_id) << std::endl;
 
 		//create a queue to which we will push commands for the device
-		cl::CommandQueue queue(context);
+		cl::CommandQueue queue(context, CL_QUEUE_PROFILING_ENABLE);
 
 		//3.2 Load & build the device code
 		cl::Program::Sources sources;
@@ -73,26 +73,27 @@ int main(int argc, char** argv) {
 		}
 
 		//Part 4 - device operations
-
+		std::vector<int> bin_contents(nr_bins);
 
 
 
 		//device - buffers
 		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size());
 		cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); //should be the same as input image //image_input.size()
-
-
+		//cl::Buffer bin_contents_buffer(context, CL_MEM_READ_WRITE, bin_contents.size() * sizeof(int)); 
 
 		//4.1 Copy images to device memory
 		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
 
 		//4.2 Setup and execute the kernel (i.e. device code)
-		cl::Kernel kernel = cl::Kernel(program, "hist_with_print");
+		cl::Kernel kernel = cl::Kernel(program, "cumulative_hist");
 		kernel.setArg(0, dev_image_input);
-		kernel.setArg(1, dev_image_output);
-		kernel.setArg(2, static_cast<int>(nr_bins)); // Pass number of bins as argument
+		kernel.setArg(1, dev_image_output); 
+		kernel.setArg(2, static_cast<int>(nr_bins)); // Pass number of bins as argument 
 
-		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange);
+		cl::Event prof_event; //Timing kernel execution
+	
+		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange, NULL, &prof_event); 
 
 
 		vector<unsigned char> output_buffer(image_input.size());
@@ -103,8 +104,18 @@ int main(int argc, char** argv) {
 
 		CImg<unsigned char> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
 		CImgDisplay disp_output(output_image, "output");
-		// Print histogram
+		
+		//queue.enqueueReadBuffer(bin_contents_buffer, CL_TRUE, 0, bin_contents.size() * sizeof(int), bin_contents.data());
+
+
+		//Output kernel time
+		std::cout << "Kernel execution time [ns]:" <<
+			prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() -
+			prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 	
+		std::cout << GetFullProfilingInfo(prof_event, ProfilingResolution::PROF_US)
+			<< std::endl;
+
 		while (!disp_input.is_closed() && !disp_output.is_closed()
 			&& !disp_input.is_keyESC() && !disp_output.is_keyESC()) {
 			disp_input.wait(1);

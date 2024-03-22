@@ -5,29 +5,8 @@ kernel void identity(global const uchar* A, global uchar* B) {
 	B[id] = A[id];
 }
 
-kernel void calculate_histogram(global const uchar* A, global uint* histogram) {
-	// Initialize histogram bins to zero
-	local uint local_histogram[256];
-	for (int i = 0; i < 256; ++i) {
-		local_histogram[i] = 0;
-	}
-
-	// Calculate histogram in local memory
-	int id = get_global_id(0);
-	uchar intensity = A[id];
-	atomic_inc(&local_histogram[intensity]);
-
-	// Accumulate local histograms into global histogram
-	if (get_local_id(0) == 0) {
-		for (int i = 0; i < 256; ++i) {
-			atomic_add(&histogram[i], local_histogram[i]);
-		}
-	}
-}
 
 
-
-//Hist with print is used for testing
 kernel void hist_with_print(global const unsigned char* image, global int* histogram, const int nr_bins) {
 	int id = get_global_id(0);
 	const int image_size = get_global_size(0); // Get total number of pixels in the image
@@ -43,7 +22,6 @@ kernel void hist_with_print(global const unsigned char* image, global int* histo
 		}
 		atomic_inc(&histogram[bin_index]);
 	}
-
 	// Barrier to ensure all threads finish histogram calculation before printing
 	barrier(CLK_GLOBAL_MEM_FENCE);
 	if (id == 0) {
@@ -52,6 +30,82 @@ kernel void hist_with_print(global const unsigned char* image, global int* histo
 		}
 	}
 }
+
+//kernel void cumulative_hist(global const unsigned char* image, global int* cumulative_histogram, const int nr_bins) {
+//	int id = get_global_id(0);
+//	const int image_size = get_global_size(0);
+//
+//	// Initialize histogram bins to 0
+//	if (id < nr_bins) {
+//		cumulative_histogram[id] = 0;
+//	}
+//	barrier(CLK_GLOBAL_MEM_FENCE);
+//
+//	// Calculate histogram
+//	if (id < image_size) {
+//		int bin_index = image[id]; // Assuming image contains intensity values
+//		if (bin_index >= nr_bins) {
+//			bin_index = nr_bins - 1; // Put numbers greater than or equal to nr_bins in the last bin
+//		}
+//		atomic_inc(&cumulative_histogram[bin_index]);
+//	}
+//	barrier(CLK_GLOBAL_MEM_FENCE);
+//
+//	// Calculate cumulative histogram iteratively
+//	int sum = 0;
+//	for (int i = 0; i < nr_bins; ++i) {
+//		sum += cumulative_histogram[i];
+//		cumulative_histogram[i] = sum;
+//	}
+//	if (id == 0) {
+//		for (int i = 0; i < nr_bins; ++i) {
+//			printf("%d %d\n", i, cumulative_histogram[i]);
+//		}
+//	}
+//}
+
+
+
+kernel void cumulative_hist(global const unsigned char* image, global int* cumulative_histogram, const int nr_bins) {
+	int id = get_global_id(0);
+	const int image_size = get_global_size(0);
+
+	// Initialize histogram bins to 0
+	if (id < nr_bins) {
+		cumulative_histogram[id] = 0;
+	}
+
+	// Calculate histogram
+	if (id < image_size) {
+		int bin_index = image[id]; // Assuming image contains intensity values
+		if (bin_index >= nr_bins) {
+			bin_index = nr_bins - 1; // Put numbers greater than or equal to nr_bins in the last bin
+		}
+		atomic_inc(&cumulative_histogram[bin_index]);
+	}
+
+	// Barrier to ensure all threads finish histogram calculation before proceeding to Blelloch scan
+	barrier(CLK_GLOBAL_MEM_FENCE);
+
+	//Blellcoh Scan up-sweep
+	//wow what a clever use of this algorithm
+	int stride = 1;
+	while (stride < nr_bins) {
+		for (int stride = 1; stride < nr_bins; stride *= 2) {
+			for (int index = stride + id; index < nr_bins; index += 2 * stride) {
+				cumulative_histogram[index] += cumulative_histogram[index - stride];
+			}
+			barrier(CLK_GLOBAL_MEM_FENCE);
+		}
+		stride *= 2;
+	}
+
+	if (id == 0) {
+		for (int i = 0; i < nr_bins; ++i) {
+			printf("%d %d\n", i, cumulative_histogram[i]);
+		}
+	}
+} 
 
 
 
@@ -78,6 +132,8 @@ kernel void scan_bl(global const uchar* A, global uchar* B) {
 		}
 		barrier(CLK_GLOBAL_MEM_FENCE); // Sync the step
 	}
+
+
 }
 
 
