@@ -1,12 +1,4 @@
 
-//a simple OpenCL kernel which copies all pixels from A to B
-kernel void identity(global const uchar* A, global uchar* B) {
-	int id = get_global_id(0);
-	B[id] = A[id];
-}
-
-
-
 kernel void hist_with_print(global const unsigned char* image, global int* histogram, const int nr_bins) {
 	int id = get_global_id(0);
 	const int image_size = get_global_size(0); // Get total number of pixels in the image
@@ -31,42 +23,8 @@ kernel void hist_with_print(global const unsigned char* image, global int* histo
 	}
 }
 
-//kernel void cumulative_hist(global const unsigned char* image, global int* cumulative_histogram, const int nr_bins) {
-//	int id = get_global_id(0);
-//	const int image_size = get_global_size(0);
-//
-//	// Initialize histogram bins to 0
-//	if (id < nr_bins) {
-//		cumulative_histogram[id] = 0;
-//	}
-//	barrier(CLK_GLOBAL_MEM_FENCE);
-//
-//	// Calculate histogram
-//	if (id < image_size) {
-//		int bin_index = image[id]; // Assuming image contains intensity values
-//		if (bin_index >= nr_bins) {
-//			bin_index = nr_bins - 1; // Put numbers greater than or equal to nr_bins in the last bin
-//		}
-//		atomic_inc(&cumulative_histogram[bin_index]);
-//	}
-//	barrier(CLK_GLOBAL_MEM_FENCE);
-//
-//	// Calculate cumulative histogram iteratively
-//	int sum = 0;
-//	for (int i = 0; i < nr_bins; ++i) {
-//		sum += cumulative_histogram[i];
-//		cumulative_histogram[i] = sum;
-//	}
-//	if (id == 0) {
-//		for (int i = 0; i < nr_bins; ++i) {
-//			printf("%d %d\n", i, cumulative_histogram[i]);
-//		}
-//	}
-//}
 
-
-
-kernel void cumulative_hist(global const unsigned char* image, global int* cumulative_histogram, const int nr_bins) {
+kernel void blelloch_upsweep(global const unsigned char* image, global int* cumulative_histogram, const int nr_bins) {
 	int id = get_global_id(0);
 	const int image_size = get_global_size(0);
 
@@ -89,23 +47,24 @@ kernel void cumulative_hist(global const unsigned char* image, global int* cumul
 
 	//Blellcoh Scan up-sweep
 	//wow what a clever use of this algorithm
-	int stride = 1;
-	while (stride < nr_bins) {
-		for (int stride = 1; stride < nr_bins; stride *= 2) {
-			for (int index = stride + id; index < nr_bins; index += 2 * stride) {
+	/*int stride = 1;
+	for (int index = stride; stride < nr_bins; stride *= 2) {
+		for (index = id; index < nr_bins; index += get_global_size(0)) {
+			if (index >= stride) {
 				cumulative_histogram[index] += cumulative_histogram[index - stride];
 			}
-			barrier(CLK_GLOBAL_MEM_FENCE);
 		}
-		stride *= 2;
-	}
-
-	if (id == 0) {
-		for (int i = 0; i < nr_bins; ++i) {
-			printf("%d %d\n", i, cumulative_histogram[i]);
+		barrier(CLK_GLOBAL_MEM_FENCE);
+	}*/
+	int stride = 1;
+	for (int index = stride + id; stride < nr_bins; stride *= 2, index += get_global_size(0)) {
+		if (index < nr_bins) {
+			cumulative_histogram[index] += cumulative_histogram[index - stride];
 		}
+		barrier(CLK_GLOBAL_MEM_FENCE);
 	}
 } 
+
 
 
 

@@ -20,7 +20,7 @@ int main(int argc, char** argv) {
 	//Part 1 - handle command line options such as device selection, verbosity, etc.
 	int platform_id = 0;
 	int device_id = 0;
-	string image_filename = "test.ppm";
+	string image_filename = "test.pgm";
 
 	for (int i = 1; i < argc; i++) {
 		if ((strcmp(argv[i], "-p") == 0) && (i < (argc - 1))) { platform_id = atoi(argv[++i]); }
@@ -39,11 +39,12 @@ int main(int argc, char** argv) {
 		cout << "Enter No. Bins (Default: 256) - ";
 		cin >> nr_bins; //Should probably have error handling but not graded soooo
 
+	
 
 		CImg<unsigned char> image_input(image_filename.c_str());
 		CImgDisplay disp_input(image_input, "input");
 		
-
+		int total_pixels = image_input.width() * image_input.height(); //new
 		//Part 3 - host operations
 		//3.1 Select computing devices
 		cl::Context context = GetContext(platform_id, device_id);
@@ -75,6 +76,10 @@ int main(int argc, char** argv) {
 		//Part 4 - device operations
 		std::vector<int> bin_contents(nr_bins);
 
+		//NEW
+		std::vector<unsigned int> cumulative_histogram(nr_bins, 0);
+		cl::Buffer dev_cumulative_histogram(context, CL_MEM_READ_WRITE, sizeof(unsigned int) * nr_bins); 
+		//NEW
 
 
 		//device - buffers
@@ -86,9 +91,9 @@ int main(int argc, char** argv) {
 		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
 
 		//4.2 Setup and execute the kernel (i.e. device code)
-		cl::Kernel kernel = cl::Kernel(program, "cumulative_hist");
+		cl::Kernel kernel = cl::Kernel(program, "blelloch_upsweep");
 		kernel.setArg(0, dev_image_input);
-		kernel.setArg(1, dev_image_output); 
+		kernel.setArg(1, dev_cumulative_histogram); //image_output
 		kernel.setArg(2, static_cast<int>(nr_bins)); // Pass number of bins as argument 
 
 		cl::Event prof_event; //Timing kernel execution
@@ -100,14 +105,34 @@ int main(int argc, char** argv) {
 
 		//4.3 Copy the result from device to host
 		cl::Event kernel_event;
-		queue.enqueueReadBuffer(dev_image_output, CL_TRUE, 0, output_buffer.size(), &output_buffer.data()[0]);
+		queue.enqueueReadBuffer(dev_cumulative_histogram, CL_TRUE, 0, sizeof(unsigned int) * nr_bins, cumulative_histogram.data());
 
+		//When in doubt make it a pointer
+		unsigned int max_value = *max_element(cumulative_histogram.begin(), cumulative_histogram.end());
+
+		// Scale and normalize the cumulative histogram, for 8-bit
+		for (int i = 0; i < nr_bins; ++i) {
+			cumulative_histogram[i] = static_cast<unsigned int>(cumulative_histogram[i] * 255 / max_value);
+		}
+
+		//Look up table of death
+		for (int i = 0; i < image_input.width(); ++i) {
+			for (int j = 0; j < image_input.height(); ++j) {
+				int pixel_value = image_input(i, j); 
+				int new_pixel_value = cumulative_histogram[pixel_value]; 
+				output_buffer[i + j * image_input.width()] = static_cast<unsigned char>(new_pixel_value);
+			}
+		}
+
+		// Display the back-projected output image
 		CImg<unsigned char> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
-		CImgDisplay disp_output(output_image, "output");
-		
-		//queue.enqueueReadBuffer(bin_contents_buffer, CL_TRUE, 0, bin_contents.size() * sizeof(int), bin_contents.data());
+		CImgDisplay disp_output(output_image, "Back-Projected Output Image");
 
 
+		// Output the normalized and scaled cumulative histogram
+		for (int i = 0; i < nr_bins; ++i) {
+			std::cout << i << ": " << cumulative_histogram[i] << std::endl;
+		}
 		//Output kernel time
 		std::cout << "Kernel execution time [ns]:" <<
 			prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() -
