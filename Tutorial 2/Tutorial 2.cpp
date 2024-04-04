@@ -39,9 +39,12 @@ int main(int argc, char** argv) {
 		cout << "Enter No. Bins (Default: 256) - ";
 		cin >> nr_bins; //Should probably have error handling but not graded soooo
 
+		
 	
+			
 
 		CImg<unsigned char> image_input(image_filename.c_str());
+
 		CImgDisplay disp_input(image_input, "input image");
 		
 		int total_pixels = image_input.width() * image_input.height(); //new
@@ -81,53 +84,61 @@ int main(int argc, char** argv) {
 		cl_device_id device_id_cl = devices[device_id]();
 		size_t max_work_group_size;
 		clGetDeviceInfo(device_id_cl, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &max_work_group_size, NULL); 
-		size_t local_work_size = 256;
+		size_t local_work_size = 128;
 
 
 		//device - buffers
 		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size());
-		//cl::Buffer dev_image_output(context, CL_MEM_READ_WRITE, image_input.size()); //should be the same as input image //image_input.size()
+
+
+
+
 		std::vector<unsigned int> cumulative_histogram(nr_bins, 0);
+
 		cl::Buffer dev_cumulative_histogram(context, CL_MEM_WRITE_ONLY, sizeof(unsigned int) * nr_bins);
-		//cl::Buffer bin_contents_buffer(context, CL_MEM_READ_WRITE, bin_contents.size() * sizeof(int)); 
+
+
 
 		//4.1 Copy images to device memory
-		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size(), &image_input.data()[0]);
+		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size() * sizeof(unsigned char), &image_input.data()[0]);
 
 		//4.2 Setup and execute the kernel (i.e. device code)
 		std::cout << image_input.size() << std::endl;
-		cl::Kernel kernel = cl::Kernel(program, "blelloch_upsweep");
+		cl::Kernel kernel = cl::Kernel(program, "cumulative_histogram");
 		kernel.setArg(0, dev_image_input);
 		kernel.setArg(1, dev_cumulative_histogram); //image_output
 		kernel.setArg(2, static_cast<int>(nr_bins)); // Pass number of bins as argument 
 
-		cl::Event prof_event; //Timing kernel execution
-	
-		//queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange, NULL, &prof_event); 
-		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NDRange(local_work_size), NULL, &prof_event);
 
+		cl::Event prof_event; //Timing kernel execution
+		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange, NULL, &prof_event); 
+		
+		
 		vector<unsigned char> output_buffer(image_input.size());
 
 		//4.3 Copy the result from device to host
 		cl::Event kernel_event;
-		queue.enqueueReadBuffer(dev_cumulative_histogram, CL_TRUE, 0, sizeof(unsigned int) * nr_bins, cumulative_histogram.data());
 
-		//When in doubt make it a pointer
-		unsigned int max_value = *max_element(cumulative_histogram.begin(), cumulative_histogram.end());
+		//queue.enqueueReadBuffer(dev_cumulative_histogram, CL_TRUE, 0, sizeof(unsigned int) * nr_bins, cumulative_histogram.data());
+		queue.enqueueReadBuffer(dev_cumulative_histogram, CL_FALSE, 0, sizeof(unsigned int)* nr_bins, cumulative_histogram.data(), NULL, &kernel_event);
+
+		unsigned int max_value = *max_element(cumulative_histogram.begin(), cumulative_histogram.end()); 
 
 		// Scale and normalize the cumulative histogram, for 8-bit
-		for (int i = 0; i < nr_bins; ++i) {
-			cumulative_histogram[i] = static_cast<unsigned int>(cumulative_histogram[i] * 255 / max_value);
+		for (int i = 0; i < nr_bins; ++i) { 
+			cumulative_histogram[i] = static_cast<unsigned int>(cumulative_histogram[i] * 256 / max_value); 
 		}
 
+	
 		//Look up table of death
 		for (int i = 0; i < image_input.width(); ++i) {
 			for (int j = 0; j < image_input.height(); ++j) {
-				int pixel_value = image_input(i, j); 
-				int new_pixel_value = cumulative_histogram[pixel_value]; 
+				int pixel_value = image_input(i, j);
+				int new_pixel_value = cumulative_histogram[pixel_value];
 				output_buffer[i + j * image_input.width()] = static_cast<unsigned char>(new_pixel_value);
 			}
 		}
+
 
 		// Display the back-projected output image
 		CImg<unsigned char> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum());
@@ -138,6 +149,9 @@ int main(int argc, char** argv) {
 		for (int i = 0; i < nr_bins; ++i) {
 			std::cout << i << ": " << cumulative_histogram[i] << std::endl;
 		}
+
+		
+
 		//Output kernel time
 		std::cout << "Kernel execution time [ns]:" <<
 			prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() -prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
