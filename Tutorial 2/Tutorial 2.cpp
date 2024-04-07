@@ -20,7 +20,30 @@ int main(int argc, char** argv) {
 	//Part 1 - handle command line options such as device selection, verbosity, etc.
 	int platform_id = 0;
 	int device_id = 0;
-	string image_filename = "test.pgm";
+
+	int image_choice = 1;
+	std::cout << "choose file:\n1 = 8-bit mono\n2 = 16-bit mono\n3 = 8-bit colour\n(enter 1, 2 or 3): ";
+	std::cin >> image_choice;
+	string image_filename = "";
+	//I know this part isnt graded but it looks pretty 
+	switch (image_choice) {
+	case 1:
+		image_filename = "test.pgm";
+		cout << (image_filename) << endl;
+		break;
+	case 2:
+		image_filename = "mdr16-gs.pgm";
+		cout << (image_filename) << endl; 
+		break;
+	case 3:
+		image_filename = "test.ppm";
+		cout << (image_filename) << endl;
+		break;
+	default:
+		image_filename = "test.pgm";
+		cout << (image_filename) << endl; 
+		break;
+	}
 
 	for (int i = 1; i < argc; i++) {
 		if ((strcmp(argv[i], "-p") == 0) && (i < (argc - 1))) { platform_id = atoi(argv[++i]); }
@@ -42,11 +65,12 @@ int main(int argc, char** argv) {
 		
 	
 			
-
 		CImg<unsigned char> image_input(image_filename.c_str());
+		//CImg<unsigned short> image_input(image_filename.c_str());
+
+
 
 		CImgDisplay disp_input(image_input, "input image");
-		int total_pixels = image_input.width() * image_input.height(); //new
 		//Part 3 - host operations
 		//3.1 Select computing devices
 		cl::Context context = GetContext(platform_id, device_id);
@@ -75,30 +99,31 @@ int main(int argc, char** argv) {
 		}
 
 		//Part 4 - device operations
-		std::vector<int> bin_contents(nr_bins);
-
 		//Getting max group size info
 		std::vector<cl::Device> devices;
 		context.getInfo(CL_CONTEXT_DEVICES, &devices);  
 		cl_device_id device_id_cl = devices[device_id]();
 		size_t max_work_group_size;
 		clGetDeviceInfo(device_id_cl, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &max_work_group_size, NULL); 
-		size_t local_work_size = 256;
-		size_t global_work_size = ((image_input.size() + local_work_size - 1) / local_work_size) * local_work_size;
+		std::cout << "Maximum work group size: " << max_work_group_size << std::endl;
+
+		size_t local_work_size = nr_bins;
+		if (local_work_size > max_work_group_size) {
+			// Adjust local_work_size if necessary
+			local_work_size = max_work_group_size;
+		}
 		//device - buffers
+		// 
 		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size());
+		//cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size() * sizeof(unsigned short));
 
-
-
-
-		std::vector<unsigned int> cumulative_histogram(nr_bins, 0);
-
-		cl::Buffer dev_cumulative_histogram(context, CL_MEM_WRITE_ONLY, sizeof(unsigned int) * nr_bins);
-
-
+		//cl::Buffer dev_cumulative_histogram(context, CL_MEM_WRITE_ONLY, sizeof(unsigned int) * nr_bins);
+		cl::Buffer dev_cumulative_histogram(context, CL_MEM_WRITE_ONLY, sizeof(unsigned long) * nr_bins);
 
 		//4.1 Copy images to device memory
 		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size() * sizeof(unsigned char), &image_input.data()[0]);
+		//queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size() * sizeof(unsigned short), &image_input.data()[0]);
+
 
 		//4.2 Setup and execute the kernel (i.e. device code)
 		std::cout << image_input.size() << std::endl;
@@ -109,16 +134,20 @@ int main(int argc, char** argv) {
 
 
 		cl::Event prof_event; //Timing kernel execution
-		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(global_work_size), cl::NDRange(local_work_size), NULL, &prof_event);
-		
+		std::cout << "Local work size: " << local_work_size << std::endl;
+
+		//queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(max_work_group_size), cl::NDRange(local_work_size), NULL, &prof_event);
+		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(max_work_group_size), cl::NDRange(local_work_size), NULL, &prof_event);
 		
 		vector<unsigned char> output_buffer(image_input.size());
 
 		//4.3 Copy the result from device to host
 		cl::Event kernel_event;
+		std::vector<unsigned long> cumulative_histogram(nr_bins, 0); //array of 0s the size of nr_bins
 
-		//queue.enqueueReadBuffer(dev_cumulative_histogram, CL_TRUE, 0, sizeof(unsigned int) * nr_bins, cumulative_histogram.data());
-		queue.enqueueReadBuffer(dev_cumulative_histogram, CL_FALSE, 0, sizeof(unsigned int)* nr_bins, cumulative_histogram.data(), NULL, &kernel_event);
+		//queue.enqueueReadBuffer(dev_cumulative_histogram, CL_FALSE, 0, sizeof(unsigned int)* nr_bins, cumulative_histogram.data(), NULL, &kernel_event);
+		queue.enqueueReadBuffer(dev_cumulative_histogram, CL_TRUE, 0, sizeof(unsigned long) * nr_bins, cumulative_histogram.data());
+
 
 		unsigned int max_value = *max_element(cumulative_histogram.begin(), cumulative_histogram.end()); 
 
@@ -153,7 +182,6 @@ int main(int argc, char** argv) {
 		//Output kernel time
 		std::cout << "Kernel execution time [ns]:" <<
 			prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() -prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
-		std::cout << "Maximum work group size: " << max_work_group_size << std::endl;
 
 		std::cout << GetFullProfilingInfo(prof_event, ProfilingResolution::PROF_US)
 			<< std::endl;
