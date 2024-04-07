@@ -5,38 +5,37 @@ kernel void cumulative_histogram(global const unsigned char* image, global int* 
 	const int local_id = get_local_id(0);
 	const int group_id = get_group_id(0);
 	const int image_size = get_global_size(0);
-	local int local_histogram[256]; //Meant to be set to nr_bins but gives an error
 
-	// Initialize local histogram to 0
-	if (local_id < nr_bins) {
-		local_histogram[local_id] = 0;
-	}
+	// Local memory for storing the local scan result
+	local int local_scan[256];
+
+	// Load input data into local memory and perform reduction
+	local_scan[local_id] = (image[id] < nr_bins) ? 1 : 0;
 	barrier(CLK_LOCAL_MEM_FENCE);
-	// Calculate partial histogram
-	for (int i = id; i < image_size; i += image_size) {
-		int bin_index = image[i];
-		if (bin_index >= 0 && bin_index < nr_bins) {
-			atomic_inc(&local_histogram[bin_index]);
+
+	// Perform parallel reduction within work group
+	for (int stride = 1; stride <= get_local_size(0); stride *= 2) {
+		int index = local_id + stride;
+		if (index < 256) {
+			local_scan[index] += local_scan[index - stride];
 		}
+		barrier(CLK_LOCAL_MEM_FENCE);
 	}
-	barrier(CLK_LOCAL_MEM_FENCE);
-	// partial to global
-	for (int i = local_id; i < nr_bins; i += get_local_size(0)) {
-		atomic_add(&cumulative_histogram[i], local_histogram[i]);
+
+	// Write the local scan result back to global memory
+	if (id < nr_bins) {
+		cumulative_histogram[id] = local_scan[local_id];
 	}
 	barrier(CLK_GLOBAL_MEM_FENCE);
 
-
-	//// Blelloch scan up-sweep
-	//for (int stride = 1; stride < nr_bins; stride *= 2) {
-	//	for (int index = id; index < nr_bins; index += image_size) {
-	//		if (index >= stride) {
-	//			cumulative_histogram[index] += cumulative_histogram[index - stride];
-	//		}
-	//	}
-	//	// Synchronize across work-items
-	//	barrier(CLK_GLOBAL_MEM_FENCE);
-	//}
+	// Perform inclusive scan on the global memory to get the cumulative histogram
+	for (int stride = 1; stride * 2 <= get_global_size(0); stride *= 2) {
+		int index = id - stride;
+		if (index >= 0 && index < nr_bins) {
+			cumulative_histogram[id] += cumulative_histogram[index];
+		}
+		barrier(CLK_GLOBAL_MEM_FENCE);
+	}
 }
 
 

@@ -46,7 +46,6 @@ int main(int argc, char** argv) {
 		CImg<unsigned char> image_input(image_filename.c_str());
 
 		CImgDisplay disp_input(image_input, "input image");
-		
 		int total_pixels = image_input.width() * image_input.height(); //new
 		//Part 3 - host operations
 		//3.1 Select computing devices
@@ -84,9 +83,8 @@ int main(int argc, char** argv) {
 		cl_device_id device_id_cl = devices[device_id]();
 		size_t max_work_group_size;
 		clGetDeviceInfo(device_id_cl, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &max_work_group_size, NULL); 
-		size_t local_work_size = 128;
-
-
+		size_t local_work_size = 256;
+		size_t global_work_size = ((image_input.size() + local_work_size - 1) / local_work_size) * local_work_size;
 		//device - buffers
 		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size());
 
@@ -111,7 +109,7 @@ int main(int argc, char** argv) {
 
 
 		cl::Event prof_event; //Timing kernel execution
-		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(image_input.size()), cl::NullRange, NULL, &prof_event); 
+		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(global_work_size), cl::NDRange(local_work_size), NULL, &prof_event);
 		
 		
 		vector<unsigned char> output_buffer(image_input.size());
