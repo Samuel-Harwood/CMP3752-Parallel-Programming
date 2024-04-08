@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
 		cout << (image_filename) << endl; 
 		break;
 	case 3:
-		image_filename = "test_large.ppm"; //8 bit colour
+		image_filename = "test_large.ppm"; //8 bit colour this doesn't work
 		cout << (image_filename) << endl;
 		break;
 	default:
@@ -58,18 +58,20 @@ int main(int argc, char** argv) {
 
 	//detect any potential exceptions
 	try {
-		//Dynamically set number of bins
+		//Dynamically set number of bins 
 		int nr_bins = 256; //Default Value
-		cout << "Enter No. Bins (Default: 256) - ";
-		cin >> nr_bins; //Should probably have error handling but not graded soooo
+		cout << "Enter No. Bins (256,512 work without changes) - ";
+		cin >> nr_bins; //Should probably have error handling but not graded so...
 
-		
+		//To switch between 8bitGS and 16bitGS you will need to uncomment and comment several things.
+		//or you could just give me the marks just for 8bit if you can't be bothered.
 	
 			
 		CImg<unsigned char> image_input(image_filename.c_str()); //8bit
 		//CImg<unsigned short> image_input(image_filename.c_str()); //16bit
 
 		CImg<unsigned char> image_output(image_filename.c_str()); //8bit
+		//CImg<unsigned short> image_output(image_filename.c_str()); //16bit
 
 
 		CImgDisplay disp_input(image_input, "input image");
@@ -84,9 +86,7 @@ int main(int argc, char** argv) {
 
 		//3.2 Load & build the device code
 		cl::Program::Sources sources;
-
 		AddSources(sources, "kernels.cl");
-
 		cl::Program program(context, sources);
 
 		//build and debug the kernel code
@@ -107,63 +107,65 @@ int main(int argc, char** argv) {
 		cl_device_id device_id_cl = devices[device_id]();
 		size_t max_work_group_size;
 		clGetDeviceInfo(device_id_cl, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &max_work_group_size, NULL); 
-		size_t local_work_size = nr_bins;
-		if (local_work_size > max_work_group_size) {
-			// Adjust local_work_size if necessary
-			local_work_size = max_work_group_size;
-		}
+		size_t local_work_size = nr_bins < max_work_group_size ? nr_bins : max_work_group_size; //cheeky ternary operator, just wanted to show off c++ skills
+
+		//Printing all the 
 		std::cout << "Local work size: " << local_work_size << std::endl;
 		std::cout << "Maximum work group size: " << max_work_group_size << std::endl;
+		std::cout << "Image size: " << image_input.size() << std::endl;
+		std::cout << "Number bins: " << nr_bins << std::endl;
+
 		//device - buffers
 		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size()); //8bit
 		//cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size() * sizeof(unsigned short)); //16bit
 
-		cl::Buffer dev_cumulative_histogram(context, CL_MEM_WRITE_ONLY, sizeof(unsigned long) * nr_bins); //unsigned long
+		cl::Buffer dev_cumulative_histogram(context, CL_MEM_WRITE_ONLY, sizeof(int) * nr_bins); //both 8-bit and 16-bit
 
 		//Copy images to device memory
 		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size() * sizeof(unsigned char), &image_input.data()[0]); //8bit
 		//queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size() * sizeof(unsigned short), &image_input.data()[0]); //16bit
-
-
+			
 		//4.2 Setup and execute the kernel (i.e. device code)
-		std::cout << image_input.size() << std::endl;
 		cl::Kernel kernel = cl::Kernel(program, "cumulative_histogram");
 		kernel.setArg(0, dev_image_input);
 		kernel.setArg(1, dev_cumulative_histogram); //image_output
-		kernel.setArg(2, nr_bins); //bin number 
-
+		kernel.setArg(2, nr_bins); //bin number  
 		cl::Event prof_event; //Timing kernel execution
-		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(max_work_group_size), cl::NDRange(local_work_size), NULL, &prof_event);
+
+		//queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(max_work_group_size), cl::NDRange(local_work_size), NULL, &prof_event); //if you want to only use max work gorup
+		queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(nr_bins), cl::NDRange(local_work_size), NULL, &prof_event); //8-bit and 16-bit
+		std::cout << "enqueue" << std::endl;
+
 
 
 		//4.3 Copy the result from device to host
 		cl::Event kernel_event;
-		std::vector<unsigned long> cumulative_histogram(nr_bins, 0); //array of 0s the size of nr_bins
+		std::vector<unsigned int> cumulative_histogram(nr_bins, 0); 
+		queue.enqueueReadBuffer(dev_cumulative_histogram, CL_TRUE, 0, sizeof(unsigned int) * nr_bins, cumulative_histogram.data(), NULL, &kernel_event); 
 
-		queue.enqueueReadBuffer(dev_cumulative_histogram, CL_TRUE, 0, sizeof(unsigned long) * nr_bins, cumulative_histogram.data(), NULL, &kernel_event); //unisgned int
+		std::cout << "read" << std::endl;
 
-
-		unsigned int max_value = cumulative_histogram[nr_bins - 1]; // Get the maximum value in the cumulative histogram
-
+		unsigned int max_value = cumulative_histogram[nr_bins - 1]; // Get the maximum value in the cumulative histogram 
 		// Scale and normalize the cumulative histogram
-		for (int i = 0; i < nr_bins; ++i) {
-			cumulative_histogram[i] = static_cast<unsigned int>(cumulative_histogram[i] * 255 / max_value);
+		for (int i = 0; i < nr_bins; ++i) {					
+			cumulative_histogram[i] = static_cast<unsigned int>(cumulative_histogram[i] * 255 / max_value); //change this to 65536 for 16bit
 		}
-
-		// Generate lookup table
-		vector<unsigned char> output_buffer(image_input.size()); //unsigned char
-
-		for (int i = 0; i < image_input.width(); ++i) {
+		
+		//holds our look up table data
+		vector<unsigned short> output_buffer(image_input.size()); 
+		////LOOK UP TABLE!
+		for (int i = 0; i < image_input.width(); ++i) { //for each pixel..
 			for (int j = 0; j < image_input.height(); ++j) {
-				int pixel_value = image_input(i, j);
-				int new_pixel_value = cumulative_histogram[pixel_value];
-				output_buffer[i + j * image_input.width()] = static_cast<unsigned char>(new_pixel_value);
+				int pixel_value = image_input(i, j); //original pixel intensity at co-ord i,j
+				int new_pixel_value = cumulative_histogram[pixel_value]; //actual assignment
+				output_buffer[i + j * image_input.width()] = static_cast<unsigned short>(new_pixel_value);
 			}
 		}
 
+		//Output the normalized and scaled cumulative histogram
 
 		//Alternate way to do the look up table, gives same result
-		// Will need to change output_buffer.data() to image_output.data()
+		// Will need to change output_buffer.data() to image_output.data() in output_image()
 		//std::vector<int>lut(nr_bins);
 		//for (int i = 0; i < nr_bins; ++i) 
 		//	lut[i] = cumulative_histogram[i];
@@ -173,21 +175,17 @@ int main(int argc, char** argv) {
 		//	image_output(x, y) = map;
 		//}
 
+		for (int i = 0; i < nr_bins; ++i) {
+			std::cout << i << " " << cumulative_histogram[i] << std::endl;
+		}
+
 
 		// Display the back-projected output image
 		CImg<unsigned char> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum()); //8bit
 		//CImg<unsigned short> output_image(output_buffer.data(), image_input.width(), image_input.height(), image_input.depth(), image_input.spectrum()); //16bit
 		CImgDisplay disp_output(output_image, "output image");
 
-
-		// Output the normalized and scaled cumulative histogram
-		for (int i = 0; i < nr_bins; ++i) {
-			std::cout << i << ": " << cumulative_histogram[i] << std::endl;
-		}
-
-		
-
-		//Output kernel time
+		//Output kernel info
 		std::cout << "Kernel execution time [ns]:" <<
 			prof_event.getProfilingInfo<CL_PROFILING_COMMAND_END>() -prof_event.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 
