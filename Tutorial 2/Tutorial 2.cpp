@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
 	//If the image names are different have fun changing them
 	switch (image_choice) {
 	case 1:
-		image_filename = "test.pgm"; //8bit mono
+		image_filename = "test.pgm"; //8bit mono 209 - 543 (note some values will cause race conditions)
 		cout << (image_filename) << endl;
 		break;
 	case 2:
@@ -119,30 +119,21 @@ int main(int argc, char** argv) {
 		//greyscale
 		cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size()); //8bit
 		//cl::Buffer dev_image_input(context, CL_MEM_READ_ONLY, image_input.size() * sizeof(unsigned short)); //16bit
+
 		cl::Buffer dev_cumulative_histogram(context, CL_MEM_WRITE_ONLY, sizeof(int) * nr_bins); //both 8-bit and 16-bit
+		//cl::Buffer dev_cumulative_histogram(context, CL_MEM_WRITE_ONLY, sizeof(int) * 3 * nr_bins); //COLOUR
+
 		//greyscale
 
-		//COLOUR
-		//cl::Buffer dev_histogram_r(context, CL_MEM_READ_WRITE, 256 * sizeof(unsigned int)); // Red 
-		//cl::Buffer dev_histogram_g(context, CL_MEM_READ_WRITE, 256 * sizeof(unsigned int)); //  Green 
-		//cl::Buffer dev_histogram_b(context, CL_MEM_READ_WRITE, 256 * sizeof(unsigned int)); //  Blue 
-		//unsigned int zeros[256] = { 0 }; //Cant use cumulative_histogram array here due to some conversion issues
-		//queue.enqueueWriteBuffer(dev_histogram_r, CL_TRUE, 0, 256 * sizeof(unsigned int), zeros);
-		//queue.enqueueWriteBuffer(dev_histogram_g, CL_TRUE, 0, 256 * sizeof(unsigned int), zeros);
-		//queue.enqueueWriteBuffer(dev_histogram_b, CL_TRUE, 0, 256 * sizeof(unsigned int), zeros);
-		//COLOUR
-
+	
 		//Copy images to device memory
 		queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size() * sizeof(unsigned char), &image_input.data()[0]); //8bit 
 		//queue.enqueueWriteBuffer(dev_image_input, CL_TRUE, 0, image_input.size() * sizeof(unsigned short), &image_input.data()[0]); //16bit
 
 		//4.2 Setup and execute the kernel (i.e. device code)
-		cl::Kernel kernel = cl::Kernel(program, "cumulative_histogram"); //cumulative_histogram_colour
+		cl::Kernel kernel = cl::Kernel(program, "cumulative_histogram"); //change kernel (all have same number of params)
 		kernel.setArg(0, dev_image_input);
-		kernel.setArg(1, dev_cumulative_histogram); //image_output (REMOVE FOR COLOUR) 
-		//kernel.setArg(1, dev_histogram_r);//colour
-		//kernel.setArg(2, dev_histogram_g); //colour
-		//kernel.setArg(3, dev_histogram_b); //colour
+		kernel.setArg(1, dev_cumulative_histogram); //image_output
 		kernel.setArg(2, nr_bins); //bin number  //Change to kernel 4 for colour
 		cl::Event prof_event; //Timing kernel execution
 
@@ -153,34 +144,17 @@ int main(int argc, char** argv) {
 
 		//4.3 Copy the result from device to host
 		cl::Event kernel_event;
-		std::vector<unsigned int> cumulative_histogram(nr_bins, 0); 
-		queue.enqueueReadBuffer(dev_cumulative_histogram, CL_TRUE, 0, sizeof(unsigned int) * nr_bins, cumulative_histogram.data(), NULL, &kernel_event); //8bit - 16bit mono
+		std::vector<unsigned int> cumulative_histogram(nr_bins, 0); //greyscale
+		//std::vector<unsigned int> cumulative_histogram(3 * nr_bins, 0); //COLOUR
+
+		queue.enqueueReadBuffer(dev_cumulative_histogram, CL_TRUE, 0, sizeof(int) * nr_bins, cumulative_histogram.data(), NULL, &kernel_event); //8bit and 16bit mono
+		//queue.enqueueReadBuffer(dev_cumulative_histogram, CL_TRUE, 0, sizeof(unsigned int) * 3 * nr_bins, cumulative_histogram.data(), NULL, &kernel_event); //colour
 
 		vector<unsigned char> output_buffer(image_input.size()); //holds our look up table data
-
-
 		//COLOUR
-		//unsigned int histogram_r[256], histogram_g[256], histogram_b[256];
-		//queue.enqueueReadBuffer(dev_histogram_r, CL_TRUE, 0, 256 * sizeof(unsigned int), histogram_r); 
-		//queue.enqueueReadBuffer(dev_histogram_g, CL_TRUE, 0, 256 * sizeof(unsigned int), histogram_g); 
-		//queue.enqueueReadBuffer(dev_histogram_b, CL_TRUE, 0, 256 * sizeof(unsigned int), histogram_b);
-		//unsigned char lookup_table_r[256];
-		//unsigned char lookup_table_g[256];
-		//unsigned char lookup_table_b[256];
+	
+		//COLOUR
 
-		//for (int i = 0; i < 256; ++i) { //256 as I couldn't figure out how to get it to work with a dynamic number of bins
-		//	lookup_table_r[i] = static_cast<unsigned char>(histogram_r[i]);
-		//	lookup_table_g[i] = static_cast<unsigned char>(histogram_g[i]);
-		//	lookup_table_b[i] = static_cast<unsigned char>(histogram_b[i]);
-		//}
-
-		//// Add histogram values back to each channel
-		//for (int i = 0; i < image_input.size(); i += 3) {
-		//	output_buffer[i] += lookup_table_r[image_input[i]];
-		//	output_buffer[i + 1] += lookup_table_g[image_input[i + 1]];
-		//	output_buffer[i + 2] += lookup_table_b[image_input[i + 2]];
-		//}
-		////COLOUR
 
 		//Greyscale
 		unsigned int max_value = cumulative_histogram[nr_bins - 1]; // Get the maximum value in the cumulative histogram 
@@ -198,6 +172,7 @@ int main(int argc, char** argv) {
 			}
 		}
 		//Greyscale
+		
 
 		//Alternate way to do the look up table, gives same result
 		// Will need to change output_buffer.data() to image_output.data() in output_image()
@@ -212,9 +187,9 @@ int main(int argc, char** argv) {
 
 
 		//Output the normalized and scaled cumulative histogram (see below for .txt output alternative)
-	/*	for (int i = 0; i < nr_bins; ++i) {
+		for (int i = 0; i < nr_bins; ++i) {
 			std::cout << i << " " << cumulative_histogram[i] << std::endl;
-		}*/
+		}
 
 
 		// Display the back-projected output image
@@ -234,7 +209,7 @@ int main(int argc, char** argv) {
 		if (histogram_file.is_open()) {
 			histogram_file << "Greyscale Histogram:\n";
 			for (int i = 0; i < nr_bins; ++i) {
-				histogram_file << i << ": " << cumulative_histogram[i] << "\n";
+				histogram_file << i << ": " << output_buffer[i] << "\n";
 			}
 			//histogram_file << "Red Histogram:\n";
 			//for (int i = 0; i < 256; ++i) {

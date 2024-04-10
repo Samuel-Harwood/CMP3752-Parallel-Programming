@@ -1,3 +1,5 @@
+
+//This kernel can use a variety of different nr_bin values.
 kernel void cumulative_histogram(global const unsigned char* image, global int* cumulative_histogram,const int nr_bins) {
 	const int id = get_global_id(0);
 	const int local_id = get_local_id(0);
@@ -51,67 +53,32 @@ kernel void cumulative_histogram(global const unsigned char* image, global int* 
 }
 
 
-kernel void sixteen_bit_cumulative_histogram(global const unsigned char* image, global int* cumulative_histogram, const int nr_bins) {
+//ycbcr colour image
+//for all three channels so the size of the output will be 3 * nr_bins
+//where each third is 0-255. Requires a seperate lookuptable to 
+kernel void cumulative_histogram_colour(global const unsigned char* image, global int* cumulative_histogram, const int nr_bins) {
 	const int id = get_global_id(0);
 	const int image_size = get_global_size(0);
 
-	// Increment the corresponding bin in the cumulative histogram
-	atomic_inc(&cumulative_histogram[image[id]]); 
-	//Couldn't solve for how to use local memory on such a large image
-	// Synchronise
+	// Initialize cumulative histogram to zero.
+	if (id < nr_bins * 3) {
+		cumulative_histogram[id] = 0;
+	}
+
 	barrier(CLK_GLOBAL_MEM_FENCE);
 
-	// Compute cumulative
-	if (id == 0) {
-		for (int i = 1; i < nr_bins; ++i) {
-			cumulative_histogram[i] += cumulative_histogram[i - 1];
+	// Compute cumulative histogram
+	for (int i = 0; i < image_size; i += 3) {
+		int pixel_value_y = image[i];
+		int pixel_value_cb = image[i + 1];
+		int pixel_value_cr = image[i + 2];
+
+		int index = pixel_value_y + pixel_value_cb + pixel_value_cr;
+
+		if (index < nr_bins) {
+			atomic_inc(&cumulative_histogram[index]);
 		}
 	}
-}
-
-
-//For this kernel, i would recommend only using 256 bins. Any number of bns will run but give weird results.
-kernel void cumulative_histogram_colour(global const unsigned char* image, global int* cumulative_histogram_r, global int* cumulative_histogram_g, global int* cumulative_histogram_b, const int nr_bins) {
-    const int id = get_global_id(0);
-    const int image_size = get_global_size(0);
-
-    // Initialise local histograms
-    int local_histogram_r = 0;
-    int local_histogram_g = 0;
-    int local_histogram_b = 0;
-
-    if (id < image_size) {
-        unsigned char pixel_value_r = image[id * 3];     // Red 
-        unsigned char pixel_value_g = image[id * 3 + 1]; // Green 
-        unsigned char pixel_value_b = image[id * 3 + 2]; // Blue
-
-        //value of 1 is added to all bins with a value < nr_bins, showing presence of a pixel
-        //this is the code which gives weird results if nr_bins is not 256
-        if (pixel_value_r < nr_bins) {
-            local_histogram_r = 1;
-        }
-        if (pixel_value_g < nr_bins) {
-            local_histogram_g = 1;
-        }
-        if (pixel_value_b < nr_bins) {
-            local_histogram_b = 1;
-        }
-    }
-
-    // Synchronise
-    barrier(CLK_GLOBAL_MEM_FENCE);
-
-    //local to cumulative
-    if (id < nr_bins) {
-        for (int i = 0; i <= id; ++i) {
-            atomic_add(&cumulative_histogram_r[id], local_histogram_r); //add local histograms together 
-            atomic_add(&cumulative_histogram_g[id], local_histogram_g);
-            atomic_add(&cumulative_histogram_b[id], local_histogram_b);
-        }
-        barrier(CLK_GLOBAL_MEM_FENCE);
-
-    }
-
 }
 
 
