@@ -57,28 +57,44 @@ kernel void cumulative_histogram(global const unsigned char* image, global int* 
 //for all three channels so the size of the output will be 3 * nr_bins
 //where each third is 0-255. Requires a seperate lookuptable to 
 kernel void cumulative_histogram_colour(global const unsigned char* image, global int* cumulative_histogram, const int nr_bins) {
-	const int id = get_global_id(0);
-	const int image_size = get_global_size(0);
+  const int global_id = get_global_id(0);
+  const int image_size = get_global_size(0);
 
-	// Initialize cumulative histogram to zero.
-	if (id < nr_bins * 3) {
-		cumulative_histogram[id] = 0;
-	}
+  // Calculate intensity for each channel
+  int red_intensity = input[global_id];
+  int green_intensity = input[global_id + image_size];
+  int blue_intensity = input[global_id + image_size * 2];
 
-	barrier(CLK_GLOBAL_MEM_FENCE);
+  // Handle edge cases for intensity values exceeding nr_bins
+  red_intensity = min(red_intensity, nr_bins - 1);
+  green_intensity = min(green_intensity, nr_bins - 1);
+  blue_intensity = min(blue_intensity, nr_bins - 1);
 
-	// Compute cumulative histogram
-	for (int i = 0; i < image_size; i += 3) {
-		int pixel_value_y = image[i];
-		int pixel_value_cb = image[i + 1];
-		int pixel_value_cr = image[i + 2];
+  // Perform atomic increments for non-cumulative histogram
+  atomic_inc(&output[red_intensity]);
+  atomic_inc(&output[green_intensity + nr_bins]);
+  atomic_inc(&output[blue_intensity + nr_bins * 2]);
 
-		int index = pixel_value_y + pixel_value_cb + pixel_value_cr;
+  // Perform Hillis-Steele scan for cumulative histogram
+  global int* swap_buffer;
+  for (int stride = 1; stride <= nr_bins; stride *= 2) {
+    output[global_id] = input[global_id];
+    output[global_id + nr_bins] = input[global_id + nr_bins];
+    output[global_id + nr_bins * 2] = input[global_id + nr_bins * 2];
 
-		if (index < nr_bins) {
-			atomic_inc(&cumulative_histogram[index]);
-		}
-	}
+    if (global_id >= stride) {
+      output[global_id] += input[global_id - stride];
+      output[global_id + nr_bins] += input[global_id + nr_bins - stride];
+      output[global_id + nr_bins * 2] += input[global_id + (nr_bins * 2) - stride];
+    }
+
+    barrier(CLK_GLOBAL_MEM_FENCE);
+
+    swap_buffer = input;
+    input = output;
+    output = swap_buffer;
+  }
+}
 }
 
 
